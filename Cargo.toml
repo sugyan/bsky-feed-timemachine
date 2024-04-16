@@ -7,7 +7,16 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-worker = "0.0.18"
+atrium-api = "0.20.0"
+serde = { version = "1.0.197", features = ["derive"] }
+tokio = { version = "1.37.0", features = ["macros", "rt"] }
+worker = "0.1.0"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+atrium-xrpc-client = { version = "0.5.1", default-features = false, features = ["reqwest"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+atrium-xrpc-client = "0.5.1"
 
 [profile.release]
 opt-level = "s" # optimize for size in release builds
