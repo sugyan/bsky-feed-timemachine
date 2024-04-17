@@ -18,51 +18,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             env::var("BLUESKY_PASSWORD")?,
         )
         .await?;
-    println!(
-        "feeds: {:?}",
-        agent
-            .api
-            .app
-            .bsky
-            .feed
-            .get_actor_feeds(atrium_api::app::bsky::feed::get_actor_feeds::Parameters {
-                actor: AtIdentifier::Did(session.did.clone()),
-                cursor: None,
-                limit: 10.try_into().ok(),
-            })
-            .await?
-    );
-    println!(
-        "{:?}",
-        agent
-            .api
-            .com
-            .atproto
-            .repo
-            .put_record(atrium_api::com::atproto::repo::put_record::Input {
-                collection: Nsid::from_str(atrium_api::app::bsky::feed::Generator::NSID)
-                    .expect("invalid nsid"),
-                record: Record::Known(KnownRecord::AppBskyFeedGenerator(Box::new(
-                    atrium_api::app::bsky::feed::generator::Record {
-                        avatar: None,
-                        created_at: Datetime::now(),
-                        description: None,
-                        description_facets: None,
-                        did: env::var("SERVICE_DID")?
-                            .parse()
-                            .expect("invalid did"),
-                        display_name: String::from("test feed generator"),
-                        labels: None,
-                    }
-                ))),
-                repo: AtIdentifier::Did(session.did.clone()),
-                rkey: String::from("test"),
-                swap_commit: None,
-                swap_record: None,
-                validate: None
-            })
-            .await?
-    );
-
+    let rkey = env::var("RECORD_KEY")?;
+    let input = atrium_api::com::atproto::repo::put_record::Input {
+        collection: Nsid::from_str(atrium_api::app::bsky::feed::Generator::NSID)?,
+        record: Record::Known(KnownRecord::AppBskyFeedGenerator(Box::new(
+            atrium_api::app::bsky::feed::generator::Record {
+                accepts_interactions: Some(true),
+                avatar: None,
+                created_at: Datetime::now(),
+                description: Some(String::from("Your post from 6 months ago")),
+                description_facets: None,
+                did: env::var("SERVICE_DID")?.parse().expect("invalid did"),
+                display_name: String::from("You 6 months ago"),
+                labels: None,
+            },
+        ))),
+        repo: AtIdentifier::Did(session.did),
+        rkey,
+        swap_commit: None,
+        swap_record: None,
+        validate: None,
+    };
+    println!("{:?}", agent.api.com.atproto.repo.put_record(input).await?);
     Ok(())
 }
