@@ -1,10 +1,11 @@
-use crate::client::FetchClient;
+use crate::auth::{self, verify_jwt, SigningKeyProvider};
+use crate::client::{FetchClient, FetchHttpClient};
+use crate::identity::did::did_resolver::{DidResolver, Resolver};
 use atrium_api::client::AtpServiceClient;
 use atrium_api::types::LimitedNonZeroU8;
-use base64::{engine::general_purpose::URL_SAFE, Engine as _};
 use chrono::{Months, SecondsFormat, Utc};
 use serde::Deserialize;
-use worker::{console_error, console_log, Request, Response, Result};
+use worker::{console_error, console_log, Env, Request, Response, Result};
 
 #[derive(Debug, Deserialize)]
 struct Query {
@@ -13,19 +14,10 @@ struct Query {
     limit: Option<LimitedNonZeroU8<100>>,
 }
 
-#[derive(Debug, Deserialize)]
-struct Payload {
-    iss: String,
-    #[allow(dead_code)]
-    aud: String,
-    #[allow(dead_code)]
-    exp: u64,
-}
-
-pub async fn feed_skeleton(req: &Request) -> Result<Response> {
+pub async fn feed_skeleton(req: &Request, env: &Env) -> Result<Response> {
     let mut feed = Vec::new();
     let query = req.query::<Query>()?;
-    if let Some(did) = get_user_did(req)? {
+    if let Some(did) = get_user_did(req, env).await? {
         let params = atrium_api::app::bsky::feed::search_posts::Parameters {
             author: did.parse().ok(),
             cursor: None,
@@ -66,20 +58,40 @@ pub async fn feed_skeleton(req: &Request) -> Result<Response> {
     })
 }
 
-fn get_user_did(req: &Request) -> Result<Option<String>> {
+struct KeyProvider<T> {
+    did_resolver: DidResolver<T>,
+}
+
+impl SigningKeyProvider for KeyProvider<FetchHttpClient> {
+    async fn get_signing_key(&self, iss: &str, force_refresh: bool) -> auth::Result<String> {
+        self.did_resolver
+            .resolve_atproto_key(iss, force_refresh)
+            .await
+            .map_err(auth::Error::DidResolver)
+    }
+}
+
+async fn get_user_did(req: &Request, env: &Env) -> Result<Option<String>> {
     let token = req
         .headers()
         .get("Authorization")?
         .and_then(|v| v.strip_prefix("Bearer ").map(|s| s.to_string()));
-    // TODO: verify JWT
     if let Some(jwt) = token {
-        Ok(jwt
-            .split('.')
-            .nth(1)
-            .and_then(|s| URL_SAFE.decode(s).ok())
-            .and_then(|v| serde_json::from_slice::<Payload>(&v).ok())
-            .map(|payload| payload.iss))
-    } else {
-        Ok(None)
+        match verify_jwt(
+            &jwt,
+            Some(&env.var("SERVICE_DID")?.to_string()),
+            KeyProvider {
+                did_resolver: DidResolver::new(FetchHttpClient, "https://plc.directory"),
+            },
+        )
+        .await
+        {
+            Ok(payload) => {
+                console_log!("verified jwt: {payload:?}");
+                return Ok(Some(payload.iss));
+            }
+            Err(err) => console_error!("failed to verify jwt: {err}"),
+        }
     }
+    Ok(None)
 }

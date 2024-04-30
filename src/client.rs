@@ -5,20 +5,10 @@ use worker::js_sys::Uint8Array;
 use worker::wasm_bindgen::JsValue;
 use worker::{Fetch, Headers, Method, RequestInit};
 
-pub struct FetchClient {
-    base_uri: String,
-}
-
-impl FetchClient {
-    pub fn new(base_uri: impl AsRef<str>) -> Self {
-        Self {
-            base_uri: base_uri.as_ref().to_string(),
-        }
-    }
-}
+pub struct FetchHttpClient;
 
 #[async_trait(?Send)]
-impl HttpClient for FetchClient {
+impl HttpClient for FetchHttpClient {
     async fn send_http(
         &self,
         request: Request<Vec<u8>>,
@@ -55,6 +45,30 @@ impl HttpClient for FetchClient {
         Ok(builder
             .body(response.bytes().await.map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?)
+    }
+}
+
+pub struct FetchClient {
+    base_uri: String,
+    http_client: FetchHttpClient,
+}
+
+impl FetchClient {
+    pub fn new(base_uri: impl AsRef<str>) -> Self {
+        Self {
+            base_uri: base_uri.as_ref().to_string(),
+            http_client: FetchHttpClient,
+        }
+    }
+}
+
+#[async_trait(?Send)]
+impl HttpClient for FetchClient {
+    async fn send_http(
+        &self,
+        request: Request<Vec<u8>>,
+    ) -> Result<Response<Vec<u8>>, Box<dyn std::error::Error + Send + Sync + 'static>> {
+        self.http_client.send_http(request).await
     }
 }
 
